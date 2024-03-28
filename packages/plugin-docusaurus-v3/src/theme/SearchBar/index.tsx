@@ -1,22 +1,25 @@
 // @ts-nocheck
-import React, { useEffect, useMemo, useState } from 'react'
-import useBaseUrl from '@docusaurus/useBaseUrl'
+import React, { useEffect, useMemo, useState } from "react"
+import useBaseUrl from "@docusaurus/useBaseUrl"
 import { useLocation } from "@docusaurus/router"
-import useIsBrowser from '@docusaurus/useIsBrowser'
-import { useActiveVersion, useVersions } from '@docusaurus/plugin-content-docs/client'
-import { useColorMode, useDocsPreferredVersion } from '@docusaurus/theme-common'
-import { usePluginData } from '@docusaurus/useGlobalData'
-import { ungzip } from 'pako'
-import { RegisterSearchBox, presets, signals as $, events } from '@orama/searchbox'
-import '@orama/searchbox/dist/index.css'
+import useIsBrowser from "@docusaurus/useIsBrowser"
+import { useActiveVersion, useVersions } from "@docusaurus/plugin-content-docs/client"
+import { useColorMode, useDocsPreferredVersion } from "@docusaurus/theme-common"
+import { usePluginData } from "@docusaurus/useGlobalData"
+import { ungzip } from "pako"
+import { SearchBox, presets } from "@orama/searchbox"
+import { create, insertMultiple } from "@orama/orama"
+import { pluginAnalytics } from "@orama/plugin-analytics"
+import { OramaClient } from "@oramacloud/client"
+import "@orama/searchbox/dist/index.css"
 
 export function OramaSearch() {
   const [oramaInstance, setOramaInstance] = useState(null)
-  const { pathname } = useLocation();
+  const { pathname } = useLocation()
 
-  const { searchData, analytics, pluginContentDocsIds } = usePluginData('@orama/plugin-docusaurus-v3')
+  const { searchData, endpoints, analytics, pluginContentDocsIds } = usePluginData("@orama/plugin-docusaurus-v3")
   const pluginId = pluginContentDocsIds.filter((id: string) => pathname.includes(id))[0] || pluginContentDocsIds[0]
-  const baseURL = useBaseUrl('orama-search-index-@VERSION@.json.gz')
+  const baseURL = useBaseUrl("orama-search-index-@VERSION@.json.gz")
   const isBrowser = useIsBrowser()
   const activeVersion = useActiveVersion(pluginId)
   const versions = useVersions(pluginId)
@@ -36,93 +39,64 @@ export function OramaSearch() {
   }, [isBrowser, activeVersion, preferredVersion, versions])
 
   useEffect(() => {
-    $.colorScheme.value = colorMode
-  }, [colorMode])
-
-  useEffect(() => {
-    window.addEventListener(events.seeItem, (event) => {
-      try {
-        const path = event.detail.item.document.path
-        window.location.pathname = path
-      } catch (e) {
-        console.error(e)
-      }
-    })
-
-    return () => {
-      window.removeEventListener(events.seeItem, () => {})
-    }
-  }, [])
-
-  useEffect(() => {
     async function loadOrama() {
-      let buffer
+      if (endpoints) {
+        const { endpoint, api_key } = endpoints.find((endpoint: string) => endpoint.v === version.name)
+        setOramaInstance(new OramaClient({
+          api_key,
+          endpoint
+        }))
+      } /*else {
+        const client = await create({
+          schema: presets.docs.schema,
+          plugins: [
+            pluginAnalytics({
+              apiKey: analytics.apiKey,
+              indexId: analytics.indexId,
+              enabled: analytics.enabled
+            })
+          ]
+        })
+        let buffer
 
-      if (searchData[version.name]) {
-        buffer = searchData[version.name].data
-      } else {
-        const searchResponse = await fetch(baseURL.replace('@VERSION@', version.name))
+        if (searchData[version.name]) {
+          buffer = searchData[version.name].data
+        } else {
+          const searchResponse = await fetch(baseURL.replace("@VERSION@", version.name))
 
-        if (searchResponse.status === 0) {
-          throw new Error(`Network error: ${await searchResponse.text()}`)
-        } else if (searchResponse.status !== 200) {
-          throw new Error(`HTTP error ${searchResponse.status}: ${await searchResponse.text()}`)
+          if (searchResponse.status === 0) {
+            throw new Error(`Network error: ${await searchResponse.text()}`)
+          } else if (searchResponse.status !== 200) {
+            throw new Error(`HTTP error ${searchResponse.status}: ${await searchResponse.text()}`)
+          }
+
+          buffer = await searchResponse.arrayBuffer()
         }
 
-        buffer = await searchResponse.arrayBuffer()
-      }
+        const deflated = ungzip(buffer, { to: "string" })
 
-      const deflated = ungzip(buffer, { to: 'string' })
+        console.log("===DEBUG===", deflated)
 
-      setOramaInstance(deflated)
+        await insertMultiple(client, JSON.parse(deflated))
+
+        setOramaInstance(client)
+      }*/
     }
 
     if (!isBrowser || !version) {
       return
     }
 
-    loadOrama(version).catch((error) => {
-      console.error('Cannot load search index.', error)
+    loadOrama().catch((error) => {
+      console.error("Cannot load search index.", error)
     })
   }, [isBrowser, searchData, baseURL, version])
 
-  useEffect(() => {
-    if (oramaInstance) {
-      if (customElements.get('orama-searchbox') === undefined) {
-        RegisterSearchBox({
-          oramaInstance,
-          preset: presets.docs.name,
-          show: false,
-          colorScheme: colorMode,
-          analytics
-        })
-      }
-    }
-  }, [oramaInstance])
+  console.log("===DEBUG===", oramaInstance?.data)
 
   return (
     <div>
-      <button className="DocSearch DocSearch-Button" onClick={() => $.setShow(true)}>
-        <span className="DocSearch-Button-Container">
-          <svg width="20" height="20" className="DocSearch-Search-Icon" viewBox="0 0 20 20">
-            <path
-              d="M14.386 14.386l4.0877 4.0877-4.0877-4.0877c-2.9418 2.9419-7.7115 2.9419-10.6533 0-2.9419-2.9418-2.9419-7.7115 0-10.6533 2.9418-2.9419 7.7115-2.9419 10.6533 0 2.9419 2.9418 2.9419 7.7115 0 10.6533z"
-              stroke="currentColor"
-              fill="none"
-              fillRule="evenodd"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            ></path>
-          </svg>
-          <span className="DocSearch-Button-Placeholder">Search</span>
-        </span>
-        <span className="DocSearch-Button-Keys">
-          <kbd className="DocSearch-Button-Key">⌘</kbd>
-          <kbd className="DocSearch-Button-Key">K</kbd>
-        </span>
-      </button>
-
-      {oramaInstance && <orama-searchbox />}
+      {oramaInstance && <SearchBox oramaInstance={oramaInstance} colorScheme={colorMode} />}
     </div>
   )
 }
